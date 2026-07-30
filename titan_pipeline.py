@@ -80,6 +80,11 @@ class JobMatchEvaluation(BaseModel):
     summary_reasoning: str = Field(description="2-3 sentence justification for the match score.")
     apply_recommendation: bool = Field(description="True ONLY if match_score >= 50 AND is_fully_remote is True.")
 
+class CompanyEnrichmentInsights(BaseModel):
+    estimated_salary_range: str = Field(description="Estimated salary range for the role if mentioned or inferred (e.g., '$120k - $150k' or 'Not Specified').")
+    tech_stack_breakdown: list[str] = Field(description="List of primary backend, cloud, and database technologies required.")
+    company_vibe_summary: str = Field(description="1 sentence summary about the engineering environment or company focus based on description.")
+
 def evaluate_job_match(job_title: str, company: str, job_description: str) -> JobMatchEvaluation:
     """Agent 1: Evaluates job compatibility with retry mechanism against freeze errors."""
     prompt = f"""
@@ -124,6 +129,38 @@ def evaluate_job_match(job_title: str, company: str, job_description: str) -> Jo
                     apply_recommendation=False
                 )
 
+def enrich_job_insights(company: str, job_title: str, job_description: str) -> CompanyEnrichmentInsights:
+    """Agent 1.5: Enriches job data with salary estimates, tech stack breakdown, and company insights."""
+    prompt = f"""
+    Analyze the following job description for {job_title} at {company}.
+    
+    Description:
+    {job_description[:2500]}
+    
+    Extract:
+    1. Estimated salary range (if available or standard market rate for remote python roles).
+    2. Specific tech stack breakdown mentioned.
+    3. Brief 1-sentence company/role vibe summary.
+    """
+    
+    try:
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=CompanyEnrichmentInsights,
+                temperature=0.1,
+            ),
+        )
+        return CompanyEnrichmentInsights.model_validate_json(response.text)
+    except Exception:
+        return CompanyEnrichmentInsights(
+            estimated_salary_range="Not Specified",
+            tech_stack_breakdown=["Python", "Backend"],
+            company_vibe_summary="Remote software engineering position."
+        )
+
 def generate_humanized_cover_letter(company: str, job_title: str, job_description: str, matching_skills: list[str]) -> str:
     """Agent 2: Generates a natural pitch with API retry guard."""
     prompt = f"""
@@ -164,8 +201,8 @@ def generate_humanized_cover_letter(company: str, job_title: str, job_descriptio
             else:
                 return f"Hi Hiring Manager,\n\nI noticed the {job_title} role at {company} and would love to connect. I specialize in Python, FastAPI, and cloud backends.\n\nYou can review my work here: https://nabeelcodes.vercel.app/\n\nBest,\nNabeel"
 
-def send_email_alert(company: str, title: str, score: int, job_url: str, cover_letter_text: str):
-    """Agent 3: Sends an instant HTML Email alert with formatted Cover Letter & Apply Button."""
+def send_email_alert(company: str, title: str, score: int, job_url: str, cover_letter_text: str, insights: dict = None):
+    """Agent 3: Sends an instant HTML Email alert with Cover Letter and Company Insights."""
     if not SENDER_EMAIL or not SENDER_APP_PASSWORD or not RECEIVER_EMAIL:
         print("   ⚠️ Email credentials or receiver email not configured in secrets. Skipping email alert.")
         return
@@ -174,6 +211,10 @@ def send_email_alert(company: str, title: str, score: int, job_url: str, cover_l
     msg['Subject'] = f"🚨 Titan Job Match: {title} at {company} ({score}%)"
     msg['From'] = SENDER_EMAIL
     msg['To'] = RECEIVER_EMAIL
+
+    salary = insights.get('estimated_salary_range', 'Not Specified') if insights else 'Not Specified'
+    techs = ", ".join(insights.get('tech_stack_breakdown', [])) if insights else 'Standard Stack'
+    vibe = insights.get('company_vibe_summary', '') if insights else ''
 
     formatted_letter = cover_letter_text.replace('\n', '<br>')
     html_content = f"""
@@ -185,8 +226,9 @@ def send_email_alert(company: str, title: str, score: int, job_url: str, cover_l
             .container {{ background-color: #ffffff; padding: 25px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); max-width: 600px; margin: auto; }}
             .header {{ font-size: 20px; font-weight: bold; color: #1e293b; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px; margin-bottom: 15px; }}
             .badge {{ background-color: #10b981; color: white; padding: 4px 8px; border-radius: 4px; font-size: 14px; font-weight: bold; }}
-            .info-table {{ width: 100%; margin-bottom: 20px; border-collapse: collapse; }}
-            .info-table td {{ padding: 6px 0; color: #475569; }}
+            .info-table {{ width: 100%; margin-bottom: 15px; border-collapse: collapse; }}
+            .info-table td {{ padding: 5px 0; color: #475569; font-size: 14px; }}
+            .insights-box {{ background-color: #eff6ff; border-left: 4px solid #3b82f6; padding: 12px; border-radius: 4px; margin-bottom: 15px; font-size: 13px; color: #1e3a8a; }}
             .pitch-box {{ background-color: #f8fafc; border-left: 4px solid #2563eb; padding: 15px; border-radius: 4px; font-size: 14px; color: #334155; line-height: 1.6; font-family: monospace; }}
             .button-container {{ text-align: center; margin-top: 25px; }}
             .btn-apply {{ background-color: #2563eb; color: #ffffff !important; text-decoration: none; padding: 12px 25px; font-weight: bold; border-radius: 6px; display: inline-block; font-size: 16px; }}
@@ -201,6 +243,13 @@ def send_email_alert(company: str, title: str, score: int, job_url: str, cover_l
                 <tr><td><strong>Match Score:</strong> <span class="badge">{score}%</span></td></tr>
             </table>
 
+            <div class="insights-box">
+                <strong>💡 Company & Role Insights:</strong><br>
+                • <strong>Estimated Salary:</strong> {salary}<br>
+                • <strong>Tech Stack:</strong> {techs}<br>
+                • <strong>Summary:</strong> {vibe}
+            </div>
+
             <div style="font-weight: bold; color: #1e293b; margin-bottom: 8px;">Generated Cover Letter / Pitch:</div>
             <div class="pitch-box">
                 {formatted_letter}
@@ -214,16 +263,16 @@ def send_email_alert(company: str, title: str, score: int, job_url: str, cover_l
     </html>
     """
 
-    msg.set_content(f"Job Match: {title} at {company} ({score}%).\nLink: {job_url}")
+    msg.set_content(f"Job Match: {title} at {company} ({score}%).\nSalary: {salary}\nLink: {job_url}")
     msg.add_alternative(html_content, subtype='html')
 
     try:
         with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
             smtp.login(SENDER_EMAIL, SENDER_APP_PASSWORD)
             smtp.send_message(msg)
-        print("   📧 HTML Email Alert Sent Successfully!")
+        print("   📧 Enriched HTML Email Alert Sent Successfully!")
     except Exception as e:
-        print(f"   ⚠️ Email Sending Error: {e}")
+        print(f"   ⚠️ Email Error: {e}")
 
 def send_daily_summary_email(summary_stats: dict):
     """Agent 3.1: Sends a daily executive summary digest of all scanned and matched jobs."""
@@ -449,9 +498,13 @@ def run_titan_discovery():
         print(f"   Score: {match_result.match_score}% | Fully Remote: {match_result.is_fully_remote} | Decision: {status}")
         
         cover_letter_file = "N/A"
+        insights = None
         
-        # Agent 2 & 3 Trigger
+        # Agent 1.5, 2 & 3 Trigger
         if match_result.apply_recommendation:
+            print(f"   ✍️ Agent 1.5 Triggered: Extracting salary & tech stack insights...")
+            insights = enrich_job_insights(company, title, description)
+            
             print(f"   ✍️ Agent 2 Triggered: Drafting humanized pitch...")
             letter_text = generate_humanized_cover_letter(company, title, description, match_result.key_matching_skills)
             
@@ -466,8 +519,13 @@ def run_titan_discovery():
             cover_letter_file = filename
             print(f"   📄 Cover Letter saved: {filename}")
             
-            # Agent 3: Send HTML Email Alert
-            send_email_alert(company, title, match_result.match_score, job_url, letter_text)
+            # Agent 3: Send Enriched HTML Email Alert
+            insights_dict = {
+                "estimated_salary_range": insights.estimated_salary_range,
+                "tech_stack_breakdown": insights.tech_stack_breakdown,
+                "company_vibe_summary": insights.company_vibe_summary
+            }
+            send_email_alert(company, title, match_result.match_score, job_url, letter_text, insights=insights_dict)
             
         print("-" * 65)
 
@@ -475,11 +533,11 @@ def run_titan_discovery():
             "Company": company,
             "Job Title": title,
             "Match Score": match_result.match_score,
+            "Estimated Salary": insights.estimated_salary_range if match_result and insights else "N/A",
+            "Tech Stack": ", ".join(insights.tech_stack_breakdown) if match_result and insights else "N/A",
             "Fully Remote": match_result.is_fully_remote,
             "Apply Recommended": match_result.apply_recommendation,
-            "Matching Skills": ", ".join(match_result.key_matching_skills),
             "Cover Letter File": cover_letter_file,
-            "Reasoning": match_result.summary_reasoning,
             "Job URL": job_url
         })
 
