@@ -1,7 +1,6 @@
 import os
 import json
 import time
-import ssl
 import urllib.request
 import urllib.parse
 import xml.etree.ElementTree as ET
@@ -12,14 +11,11 @@ from pydantic import BaseModel, Field
 from jobspy import scrape_jobs
 
 # ---------------------------------------------------------
-# EMAIL, TELEGRAM & API CONFIG (READ FROM CLOUD SECRETS/ENV)
+# EMAIL & API CONFIG (READ FROM CLOUD SECRETS/ENV)
 # ---------------------------------------------------------
 SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "")
 SENDER_APP_PASSWORD = os.environ.get("SENDER_APP_PASSWORD", "")
 RECEIVER_EMAIL = os.environ.get("RECEIVER_EMAIL", "")
-
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 
 # Initialize Gemini Client (automatically reads GEMINI_API_KEY from env)
 client = genai.Client()
@@ -132,50 +128,69 @@ def generate_humanized_cover_letter(company: str, job_title: str, job_descriptio
             else:
                 return f"Hi Hiring Manager,\n\nI noticed the {job_title} role at {company} and would love to connect. I specialize in Python, FastAPI, and cloud backends.\n\nYou can review my work here: https://nabeelcodes.vercel.app/\n\nBest,\nNabeel"
 
-def send_telegram_alert(company: str, title: str, score: int, job_url: str):
-    """Agent 3: Telegram Alert with SSL unverified context & exponential backoff retry."""
-    token = TELEGRAM_BOT_TOKEN
-    chat_id = TELEGRAM_CHAT_ID
-
-    if not token or not chat_id:
-        print("   ⚠️ Telegram Alert Warning: Missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID environment variables.")
+def send_email_alert(company: str, title: str, score: int, job_url: str, cover_letter_text: str):
+    """Agent 3: Sends an instant HTML Email alert with formatted Cover Letter & Apply Button."""
+    if not SENDER_EMAIL or not SENDER_APP_PASSWORD:
+        print("   ⚠️ Email credentials not configured. Skipping email alert.")
         return
-    
-    raw_message = (
-        f"🚨 <b>PROJECT TITAN: NEW JOB MATCH</b> 🚨\n\n"
-        f"🏢 <b>Company:</b> {company}\n"
-        f"🎯 <b>Role:</b> {title}\n"
-        f"📊 <b>Score:</b> {score}%\n\n"
-        f"🔗 <a href='{job_url}'>Apply Here</a>"
-    )
-    
-    url = f"https://api.telegram.org/bot{token}/sendMessage"
-    payload = urllib.parse.urlencode({
-        'chat_id': chat_id,
-        'text': raw_message,
-        'parse_mode': 'HTML'
-    }).encode('utf-8')
-    
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
 
-    # SSL Context Bypass to prevent local Windows SSL handshake timeouts
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
+    from email.message import EmailMessage
+    import smtplib
 
-    max_retries = 3
-    for attempt in range(1, max_retries + 1):
-        try:
-            req = urllib.request.Request(url, data=payload, headers=headers)
-            with urllib.request.urlopen(req, timeout=15, context=ctx) as response:
-                if response.status == 200:
-                    print(f"   📲 Telegram Alert Sent Successfully!")
-                    return
-        except Exception as e:
-            if attempt < max_retries:
-                time.sleep(3 * attempt)  # Pause longer on retries
-            else:
-                print(f"   ⚠️ Telegram Alert Warning (Failed after {max_retries} tries): {e}")
+    msg = EmailMessage()
+    msg['Subject'] = f"🚨 Titan Job Match: {title} at {company} ({score}%)"
+    msg['From'] = SENDER_EMAIL
+    msg['To'] = RECEIVER_EMAIL
+
+    formatted_letter = cover_letter_text.replace('\n', '<br>')
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <style>
+            body {{ font-family: Arial, sans-serif; background-color: #f4f6f9; padding: 20px; }}
+            .container {{ background-color: #ffffff; padding: 25px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); max-width: 600px; margin: auto; }}
+            .header {{ font-size: 20px; font-weight: bold; color: #1e293b; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px; margin-bottom: 15px; }}
+            .badge {{ background-color: #10b981; color: white; padding: 4px 8px; border-radius: 4px; font-size: 14px; font-weight: bold; }}
+            .info-table {{ width: 100%; margin-bottom: 20px; border-collapse: collapse; }}
+            .info-table td {{ padding: 6px 0; color: #475569; }}
+            .pitch-box {{ background-color: #f8fafc; border-left: 4px solid #2563eb; padding: 15px; border-radius: 4px; font-size: 14px; color: #334155; line-height: 1.6; font-family: monospace; }}
+            .button-container {{ text-align: center; margin-top: 25px; }}
+            .btn-apply {{ background-color: #2563eb; color: #ffffff !important; text-decoration: none; padding: 12px 25px; font-weight: bold; border-radius: 6px; display: inline-block; font-size: 16px; }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">🚨 High Match Remote Job Found!</div>
+            <table class="info-table">
+                <tr><td><strong>Company:</strong> {company}</td></tr>
+                <tr><td><strong>Role:</strong> {title}</td></tr>
+                <tr><td><strong>Match Score:</strong> <span class="badge">{score}%</span></td></tr>
+            </table>
+
+            <div style="font-weight: bold; color: #1e293b; margin-bottom: 8px;">Generated Cover Letter / Pitch:</div>
+            <div class="pitch-box">
+                {formatted_letter}
+            </div>
+
+            <div class="button-container">
+                <a href="{job_url}" class="btn-apply" target="_blank">🚀 Apply Now Direct Link</a>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+
+    msg.set_content(f"Job Match: {title} at {company} ({score}%).\nLink: {job_url}")
+    msg.add_alternative(html_content, subtype='html')
+
+    try:
+        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
+            smtp.login(SENDER_EMAIL, SENDER_APP_PASSWORD)
+            smtp.send_message(msg)
+        print("   📧 HTML Email Alert Sent Successfully!")
+    except Exception as e:
+        print(f"   ⚠️ Email Sending Error: {e}")
 
 def fetch_live_remote_jobs() -> list:
     """Fetches live remote engineering jobs from multiple RSS sources."""
@@ -355,8 +370,8 @@ def run_titan_discovery():
             cover_letter_file = filename
             print(f"   📄 Cover Letter saved: {filename}")
             
-            # Agent 3: Send Alert
-            send_telegram_alert(company, title, match_result.match_score, job_url)
+            # Agent 3: Send HTML Email Alert
+            send_email_alert(company, title, match_result.match_score, job_url, letter_text)
             
         print("-" * 65)
 
