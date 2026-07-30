@@ -348,7 +348,7 @@ def fetch_all_job_sources(target_jobs: int = 100) -> pd.DataFrame:
                         })
             except Exception:
                 pass
-        print(f"      ✓ Total collected so far: {len(all_jobs)}")
+        print(f"     ✓ Total collected so far: {len(all_jobs)}")
 
     # 2. Remotive API Engine
     print("🌐 Step 2: Fetching bulk developer jobs from Remotive API...")

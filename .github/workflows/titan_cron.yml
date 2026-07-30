@@ -36,12 +36,12 @@ jobs:
           RECEIVER_EMAIL: ${{ secrets.RECEIVER_EMAIL }}
         run: python titan_pipeline.py
 
-      - name: Auto Commit Updated Tracker CSV and DB
+      - name: Auto Commit Updated Tracker CSV, DB and Resumes
         if: always()
         run: |
           git config --local user.name "github-actions[bot]"
           git config --local user.email "action@github.com"
-          git add titan_application_tracker.csv titan_memory.db generated_cover_letters/ || true
-          git commit -m "Auto-update memory DB, tracker CSV and generated letters [skip ci]" || exit 0
+          git add titan_application_tracker.csv titan_memory.db generated_cover_letters/ generated_resumes/ || true
+          git commit -m "Auto-update memory, tracker, cover letters and tailored resumes [skip ci]" || exit 0
           git pull origin main --rebase
           git push
