@@ -225,6 +225,55 @@ def send_email_alert(company: str, title: str, score: int, job_url: str, cover_l
     except Exception as e:
         print(f"   ⚠️ Email Sending Error: {e}")
 
+def send_daily_summary_email(summary_stats: dict):
+    """Agent 3.1: Sends a daily executive summary digest of all scanned and matched jobs."""
+    if not SENDER_EMAIL or not SENDER_APP_PASSWORD or not RECEIVER_EMAIL:
+        return
+
+    msg = EmailMessage()
+    msg['Subject'] = f"📊 Titan Daily Digest: {summary_stats['total_scanned']} Jobs Scanned | {summary_stats['eligible_count']} Eligible"
+    msg['From'] = SENDER_EMAIL
+    msg['To'] = RECEIVER_EMAIL
+
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <style>
+            body {{ font-family: Arial, sans-serif; background-color: #f4f6f9; padding: 20px; }}
+            .container {{ background-color: #ffffff; padding: 25px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); max-width: 600px; margin: auto; }}
+            .header {{ font-size: 20px; font-weight: bold; color: #1e293b; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px; margin-bottom: 15px; }}
+            .stat-box {{ display: flex; justify-content: space-between; background: #f8fafc; padding: 12px; border-radius: 6px; margin-bottom: 10px; font-size: 14px; color: #334155; }}
+            .badge-green {{ background-color: #10b981; color: white; padding: 2px 6px; border-radius: 4px; font-weight: bold; }}
+            .badge-red {{ background-color: #ef4444; color: white; padding: 2px 6px; border-radius: 4px; font-weight: bold; }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">📊 Project Titan - Daily Executive Summary</div>
+            <p>Here is the automated execution report for your remote job hunting pipeline:</p>
+            
+            <div class="stat-box"><span>Total Jobs Scanned:</span> <strong>{summary_stats['total_scanned']}</strong></div>
+            <div class="stat-box"><span>Eligible Matches (>=50% & Remote):</span> <span class="badge-green">{summary_stats['eligible_count']}</span></div>
+            <div class="stat-box"><span>Skipped / Filtered Out:</span> <span class="badge-red">{summary_stats['rejected_count']}</span></div>
+            
+            <p style="margin-top: 20px; font-size: 13px; color: #64748b;">Detailed records and cover letters have been updated in your GitHub repository tracker and memory database.</p>
+        </div>
+    </body>
+    </html>
+    """
+
+    msg.set_content(f"Titan Daily Summary:\nTotal Scanned: {summary_stats['total_scanned']}\nEligible: {summary_stats['eligible_count']}")
+    msg.add_alternative(html_content, subtype='html')
+
+    try:
+        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
+            smtp.login(SENDER_EMAIL, SENDER_APP_PASSWORD)
+            smtp.send_message(msg)
+        print("   📊 Daily Summary Digest Email Sent Successfully!")
+    except Exception as e:
+        print(f"   ⚠️ Summary Email Error: {e}")
+
 def fetch_live_remote_jobs() -> list:
     """Fetches live remote engineering jobs from multiple RSS sources."""
     sources = [
@@ -440,6 +489,20 @@ def run_titan_discovery():
         csv_file = "titan_application_tracker.csv"
         file_exists = os.path.isfile(csv_file)
         df_results.to_csv(csv_file, mode='a' if file_exists else 'w', header=not file_exists, index=False)
+        
+        # Calculate stats for summary digest
+        eligible_count = len(df_results[df_results['Apply Recommended'] == True])
+        rejected_count = len(df_results) - eligible_count
+        
+        summary_stats = {
+            "total_scanned": len(df_results),
+            "eligible_count": eligible_count,
+            "rejected_count": rejected_count
+        }
+        
+        # Send Daily Summary Digest
+        send_daily_summary_email(summary_stats)
+        
         print("\n✅ High-Volume Pipeline Complete! New records added to 'titan_application_tracker.csv'.")
     else:
         print("\nℹ️ Pipeline Complete: All fetched jobs were already processed previously.")
