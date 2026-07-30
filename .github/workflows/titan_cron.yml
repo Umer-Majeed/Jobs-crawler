@@ -10,6 +10,9 @@ jobs:
   run-titan:
     runs-on: ubuntu-latest
 
+    permissions:
+      contents: write # Git push aur auto-commit ke liye zaroori hai
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -30,4 +33,14 @@ jobs:
           SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
           SENDER_APP_PASSWORD: ${{ secrets.SENDER_APP_PASSWORD }}
           RECEIVER_EMAIL: ${{ secrets.RECEIVER_EMAIL }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python titan_pipeline.py
+
+      - name: Auto Commit Updated Tracker CSV
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action Bot"
+          git add titan_application_tracker.csv generated_cover_letters/ || true
+          git commit -m "Auto-update application tracker CSV and generated letters [skip ci]" || exit 0
+          git push
