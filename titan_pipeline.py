@@ -1,6 +1,7 @@
 import os
 import json
 import time
+import sqlite3
 import urllib.request
 import urllib.parse
 import xml.etree.ElementTree as ET
@@ -21,6 +22,39 @@ RECEIVER_EMAIL = os.environ.get("RECEIVER_EMAIL", "")
 
 # Initialize Gemini Client (automatically reads GEMINI_API_KEY from env)
 client = genai.Client()
+
+# ---------------------------------------------------------
+# SQLITE MEMORY DATABASE (DEDUPLICATION)
+# ---------------------------------------------------------
+def init_db():
+    """SQLite Database initialize karta hai pehle se processed jobs track karne ke liye."""
+    conn = sqlite3.connect("titan_memory.db")
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS processed_jobs (
+            job_key TEXT PRIMARY KEY,
+            processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+def is_job_processed(job_key: str) -> bool:
+    """Check karta hai ke job pehle process ho chuki hai ya nahi."""
+    conn = sqlite3.connect("titan_memory.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT 1 FROM processed_jobs WHERE job_key = ?", (job_key,))
+    result = cursor.fetchone()
+    conn.close()
+    return result is not None
+
+def save_processed_job(job_key: str):
+    """Naye processed job key ko database mein insert karta hai."""
+    conn = sqlite3.connect("titan_memory.db")
+    cursor = conn.cursor()
+    cursor.execute("INSERT OR IGNORE INTO processed_jobs (job_key) VALUES (?)", (job_key,))
+    conn.commit()
+    conn.close()
 
 # ---------------------------------------------------------
 # 1. AUTHORITATIVE SOURCE OF TRUTH (Profile & Region Constraints)
@@ -313,6 +347,9 @@ def fetch_all_job_sources(target_jobs: int = 100) -> pd.DataFrame:
 def run_titan_discovery():
     print("🚀 [PROJECT TITAN] Starting High-Volume Region-Filtered Pipeline...\n")
     
+    # SQLite Database initialize karein
+    init_db()
+    
     output_dir = os.path.abspath("generated_cover_letters")
     os.makedirs(output_dir, exist_ok=True)
     
@@ -329,12 +366,20 @@ def run_titan_discovery():
     processed_jobs = []
 
     for index, row in jobs.iterrows():
-        title = str(row.get('title', 'N/A'))
-        company = str(row.get('company', 'N/A'))
+        title = str(row.get('title', 'N/A')).strip()
+        company = str(row.get('company', 'N/A')).strip()
         description = str(row.get('description', 'N/A'))
         job_url = str(row.get('job_url', 'N/A'))
 
         if len(description) < 50:
+            continue
+
+        # Unique Key generation (Company + Title)
+        job_key = f"{company.lower()}_{title.lower()}"
+
+        # Check if already processed in previous runs
+        if is_job_processed(job_key):
+            print(f"⏩ [{index+1}/{total_jobs}] Skipping (Already Processed): {title} at {company}")
             continue
 
         print(f"⚡ [{index+1}/{total_jobs}] Processing: {title} at {company}...")
@@ -342,6 +387,9 @@ def run_titan_discovery():
         # Agent 1: Match Engine
         match_result = evaluate_job_match(title, company, description)
         
+        # Save to database taake future runs mein skip ho sake
+        save_processed_job(job_key)
+
         if match_result.apply_recommendation:
             status = "ELIGIBLE (>=50% & Fully Remote)"
         elif not match_result.is_fully_remote:
@@ -386,9 +434,15 @@ def run_titan_discovery():
             "Job URL": job_url
         })
 
-    df_results = pd.DataFrame(processed_jobs)
-    df_results.to_csv("titan_application_tracker.csv", index=False)
-    print("\n✅ High-Volume Pipeline Complete! Output saved to 'titan_application_tracker.csv'.")
+    if processed_jobs:
+        df_results = pd.DataFrame(processed_jobs)
+        # Check if CSV exists to append or write new with header
+        csv_file = "titan_application_tracker.csv"
+        file_exists = os.path.isfile(csv_file)
+        df_results.to_csv(csv_file, mode='a' if file_exists else 'w', header=not file_exists, index=False)
+        print("\n✅ High-Volume Pipeline Complete! New records added to 'titan_application_tracker.csv'.")
+    else:
+        print("\nℹ️ Pipeline Complete: All fetched jobs were already processed previously.")
 
 if __name__ == "__main__":
     run_titan_discovery()
