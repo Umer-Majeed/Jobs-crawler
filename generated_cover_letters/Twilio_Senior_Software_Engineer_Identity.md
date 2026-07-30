@@ -1,14 +1,14 @@
-Subject: Senior Software Engineer, Identity - Nabeel
+Subject: Applying for Senior Software Engineer, Identity - Nabeel
 
 Hi [Hiring Manager Name],
 
-Quick note about the Senior Software Engineer, Identity role at Twilio. I'm Nabeel, a Backend Software Engineer, and your description caught my eye.
+I'm reaching out about the Senior Software Engineer, Identity role at Twilio. As a backend engineer focused on 100% remote positions, Twilio's commitment to remote-first work immediately caught my attention.
 
-My background includes significant experience as a Python Engineer, specifically designing and building robust REST APIs and microservices. I also have solid experience with cloud architecture, which I believe aligns well with the technical needs for the Stytch team.
+My background as a Python Backend Software Engineer, with significant experience in REST APIs and Cloud Architecture, aligns well with the role. I've focused on building and maintaining scalable backend systems, which I believe would be valuable for your team.
 
-I'm specifically seeking a 100% fully remote position, and Twilio's remote-first culture is a great match. You can see more of my work and projects at https://nabeelcodes.vercel.app/.
+You can see more about my work and projects on my portfolio: https://nabeelcodes.vercel.app/
 
-If my profile looks like a good fit, I'd be happy to discuss further.
+I'm keen to discuss this opportunity further and explore how my skills can contribute to Twilio.
 
 Best,
 Nabeel
