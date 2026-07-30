@@ -5,6 +5,8 @@ import urllib.request
 import urllib.parse
 import xml.etree.ElementTree as ET
 import pandas as pd
+import smtplib
+from email.message import EmailMessage
 from google import genai
 from google.genai import types
 from pydantic import BaseModel, Field
@@ -130,12 +132,9 @@ def generate_humanized_cover_letter(company: str, job_title: str, job_descriptio
 
 def send_email_alert(company: str, title: str, score: int, job_url: str, cover_letter_text: str):
     """Agent 3: Sends an instant HTML Email alert with formatted Cover Letter & Apply Button."""
-    if not SENDER_EMAIL or not SENDER_APP_PASSWORD:
-        print("   ⚠️ Email credentials not configured. Skipping email alert.")
+    if not SENDER_EMAIL or not SENDER_APP_PASSWORD or not RECEIVER_EMAIL:
+        print("   ⚠️ Email credentials or receiver email not configured in secrets. Skipping email alert.")
         return
-
-    from email.message import EmailMessage
-    import smtplib
 
     msg = EmailMessage()
     msg['Subject'] = f"🚨 Titan Job Match: {title} at {company} ({score}%)"
