@@ -1,3 +1,4 @@
 google-genai
 pandas
 pydantic
+python-jobspy
